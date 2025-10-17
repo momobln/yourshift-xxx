@@ -1,44 +1,60 @@
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-
+import SwapRequestForm from "@/app/swaps/SwapRequestForm";
+import SwapAdminActions from "@/app/swaps/SwapAdminActions";
 
 export default async function SwapsPage() {
-const session = await getServerSession(authOptions);
-if (!session) return <p>Please sign in.</p>;
-const userId = (session.user as any).id as string;
-const guard = await prisma.guard.findUnique({ where: { userId } });
-const myShifts = await prisma.shift.findMany({ where: { guardId: guard?.id }, orderBy: { start: "asc" } });
-const swaps = await prisma.swapRequest.findMany({ include: { shift: true, fromGuard: true, toGuard: true }, orderBy: { createdAt: "desc" } });
+    const session = await getServerSession(authOptions);
+  if (!session) return <p>Please sign in.</p>;
 
+  const userId = session.user?.id;
+  const role = session.user?.role;
+  if (!userId || !role) return <p>Missing user information.</p>;
 
-async function create(formData: FormData) {
-"use server";
-const shiftId = formData.get("shiftId") as string;
-await fetch(`${process.env.NEXTAUTH_URL}/api/swaps`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ shiftId }) });
-}
+  const guard = await prisma.guard.findUnique({ where: { userId } });
 
+  const [myShifts, swaps, guards] = await Promise.all([
+    guard
+      ? prisma.shift.findMany({ where: { guardId: guard.id }, orderBy: { start: "asc" } })
+      : Promise.resolve([]),
+    prisma.swapRequest.findMany({
+      include: { shift: true, fromGuard: true, toGuard: true },
+      orderBy: { createdAt: "desc" },
+    }),
+    role === "ADMIN" ? prisma.guard.findMany({ orderBy: { fullName: "asc" } }) : Promise.resolve([]),
+  ]);
 
-return (
-<div>
-<h1 className="text-xl font-semibold mb-4">Swaps</h1>
-<form action={create} className="p-3 border rounded bg-white mb-4">
-<label className="block mb-1">Request swap for one of your shifts:</label>
-<select name="shiftId" className="border p-2">
-{myShifts.map(s=> (<option key={s.id} value={s.id}>{s.title} · {new Date(s.start).toLocaleString()}</option>))}
-</select>
-<button className="ml-2 px-3 py-1 border">Request</button>
-</form>
+  return (
+    <div className="space-y-4">
+      <h1 className="text-xl font-semibold">Swaps</h1>
 
+      {guard ? (
+        <SwapRequestForm
+          shifts={myShifts.map((shift) => ({ id: shift.id, title: shift.title, start: shift.start.toISOString() }))}
+        />
+      ) : (
+        <p className="text-sm text-gray-600">No guard profile linked to your account yet.</p>
+      )}
 
-<ul className="space-y-2">
-{swaps.map(w => (
-<li key={w.id} className="p-3 bg-white border rounded">
-<div className="font-medium">{w.shift.title} · {w.status}</div>
-<div>By: {w.fromGuard.fullName}</div>
-</li>
-))}
-</ul>
-</div>
-);
+      <ul className="space-y-3">
+        {swaps.map((swap) => (
+          <li key={swap.id} className="p-3 bg-white border rounded space-y-2">
+            <div className="font-medium">{swap.shift.title}</div>
+            <div className="text-sm text-gray-600">
+              Requested by {swap.fromGuard.fullName} on {swap.createdAt.toLocaleString()} · Status: {swap.status}
+            </div>
+            {swap.toGuard && (
+              <div className="text-sm text-gray-600">Will be covered by {swap.toGuard.fullName}</div>
+            )}
+            {role === "ADMIN" && swap.status === "PENDING" && (
+              <SwapAdminActions swapId={swap.id} guards={guards} excludeGuardId={swap.fromGuardId} />
+            )}
+          </li>
+        ))}
+      </ul>
+
+      {!swaps.length && <p className="text-sm text-gray-600">No swap requests yet.</p>}
+    </div>
+  );
 }
