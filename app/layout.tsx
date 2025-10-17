@@ -8,7 +8,7 @@ import AuthSessionProvider from "@/app/components/AuthSessionProvider";
 export const metadata = { title: "yourShift" };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
-const session = await getServerSession(authOptions);
+  const session = await getServerSession(authOptions);
   const role = session?.user?.role;
 
   return (
