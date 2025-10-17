@@ -1,0 +1,108 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------- ENUMS ----------
+enum Role {
+  ADMIN
+  GUARD
+}
+
+enum SwapStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+// ---------- MODELS ----------
+
+// Base User
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  emailVerified DateTime?
+  image         String?
+  role          Role      @default(GUARD)
+  guard         Guard?
+  accounts      Account[]
+  sessions      Session[]
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+// Account (NextAuth)
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+  fullName          String?
+  email             String? @unique
+  mobile            String?
+  workId            String? @unique
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+// Session (NextAuth)
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// Guard (Profile for security staff)
+model Guard {
+  id               String        @id @default(cuid())
+  userId           String        @unique
+  user             User          @relation(fields: [userId], references: [id])
+  name             String
+  shifts           Shift[]
+  sentRequests     SwapRequest[] @relation("fromGuard")
+  receivedRequests SwapRequest[] @relation("toGuard")
+}
+
+// Shift (assigned work time)
+model Shift {
+  id       String        @id @default(cuid())
+  title    String
+  location String
+  start    DateTime
+  end      DateTime
+  guardId  String?
+  guard    Guard?        @relation(fields: [guardId], references: [id])
+  notes    String?
+  requests SwapRequest[]
+}
+
+// SwapRequest (shift change requests)
+model SwapRequest {
+  id          String     @id @default(cuid())
+  shiftId     String
+  fromGuardId String
+  toGuardId   String?
+  status      SwapStatus @default(PENDING)
+  createdAt   DateTime   @default(now())
+
+  shift     Shift  @relation(fields: [shiftId], references: [id])
+  fromGuard Guard  @relation("fromGuard", fields: [fromGuardId], references: [id])
+  toGuard   Guard? @relation("toGuard", fields: [toGuardId], references: [id])
+}
